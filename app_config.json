@@ -1,0 +1,51 @@
+{
+  "appName": "蛊真人",
+  "applicationId": "com.gzr.game",
+  "packageName": "com.gzr.game",
+  "package": "com.gzr.game",
+  "versionCode": 1,
+  "versionName": "1.0",
+  "minSdkVersion": 24,
+  "targetSdkVersion": 34,
+  "compileSdkVersion": 34,
+  "namespace": "com.gzr.game",
+  "mainActivity": "com.gzr.game.GzrActivity",
+  "orientation": "landscape",
+  "native": {
+    "enabled": true,
+    "buildSystem": "cmake",
+    "cmakePath": "src/main/cpp/CMakeLists.txt",
+    "libraryName": "guzhenren",
+    "cppStandard": "c++17",
+    "cppFlags": [
+      "-std=c++17",
+      "-fexceptions",
+      "-frtti"
+    ],
+    "abiFilters": [
+      "arm64-v8a",
+      "armeabi-v7a",
+      "x86_64"
+    ],
+    "ndkVersion": "25.2.9519653"
+  },
+  "sourceSets": {
+    "main": {
+      "manifest": "src/main/AndroidManifest.xml",
+      "java": "src/main/java",
+      "cpp": "src/main/cpp",
+      "res": "src/main/res",
+      "assets": "src/main/assets"
+    }
+  },
+  "assets": {
+    "noCompress": [
+      "ttf"
+    ]
+  },
+  "appId": "com.gzr.game",
+  "id": "com.gzr.game",
+  "moduleName": "app",
+  "jniLibs": "src/main/jniLibs",
+  "prebuiltNativeLibs": "src/main/jniLibs"
+}

@@ -1,0 +1,98 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.gzr.game'
+    compileSdk 34
+
+    //
+    //  native 库的两条来源，自动二选一：
+    //
+    //   ① jniLibs/ 里已有预编译的 .so  → 直接打包，不跑 CMake
+    //   ② 否则                          → 配置 CMake，构建时现编
+    //
+    //  为什么要这样：多数轻量/手机端编译工具不会执行 externalNativeBuild，
+    //  于是 APK 里没有 .so，启动时必然抛
+    //  "Unable to find native library guzhenren"。
+    //  有了预编译 .so，这类工具只需做打包即可正常工作。
+    //
+    def hasPrebuilt = file('src/main/jniLibs').exists() &&
+                      file('src/main/jniLibs').listFiles()?.any { d ->
+                          d.isDirectory() && file("${d}/libguzhenren.so").exists()
+                      }
+
+    if (hasPrebuilt) {
+        logger.lifecycle("检测到 jniLibs 中已有预编译 libguzhenren.so —— 跳过 CMake 构建")
+    } else {
+        logger.lifecycle("未找到预编译 .so —— 将通过 CMake 构建 native 库")
+    }
+
+    defaultConfig {
+        applicationId 'com.gzr.game'
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+
+        if (!hasPrebuilt) {
+            externalNativeBuild {
+                cmake {
+                    cppFlags '-std=c++17', '-fexceptions', '-frtti'
+                    //  主打包 ABI；真机调试可只留 arm64-v8a 加快构建
+                    abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64'
+                }
+            }
+        }
+    }
+
+    //  显式声明 jniLibs 目录（默认就是它，写出来便于一眼看到）
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/jniLibs']
+        }
+    }
+
+    if (!hasPrebuilt) {
+        externalNativeBuild {
+            cmake {
+                path 'src/main/cpp/CMakeLists.txt'
+                version '3.22.1'
+            }
+        }
+    }
+
+    //  不压缩 assets —— 字体需要原始字节流由 AAssetManager 读入
+    androidResources {
+        noCompress 'ttf'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    //  不硬钉 NDK 版本 —— 钉到未安装的版本会让构建直接失败。
+    //  由本机已装的 NDK 决定（AGP 会自动挑一个可用的）。
+    //  ndkVersion '25.2.9519653'
+
+    packagingOptions {
+        //  与 manifest 的 extractNativeLibs="true" 配套：
+        //  不压缩 .so，让系统在安装时就把它解出来，
+        //  否则部分机型 dlopen 会报 "library not found"。
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+}

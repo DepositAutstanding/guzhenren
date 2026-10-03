@@ -1,0 +1,117 @@
+# ============================================================================
+#  云端编译《蛊真人》Android 版
+#
+#  用法：把整个仓库推到 GitHub，Actions 会自动跑本文件，
+#        完成后在 Actions 页面的 Artifacts 里下载产物。
+#
+#  为什么需要它：
+#    本机没有 NDK / Android SDK / gradle 时（例如只能在手机上开发），
+#    用 GitHub 的免费 runner 编译，产出 APK 与 libguzhenren.so。
+#
+#  产物：
+#    guzhenren-apk          — 可直接安装的 APK
+#    guzhenren-native-libs  — 各 ABI 的 libguzhenren.so（放进 jniLibs 即可复用）
+# ============================================================================
+name: Build Android
+
+on:
+  push:
+    branches: [ main, master ]
+  #  允许在 Actions 页面手动触发（推荐：不必为了编译而空提交一次）
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      #  Android SDK 各组件用官方 action 安装，比手动下稳定
+      - name: 安装 Android SDK / NDK / CMake
+        uses: android-actions/setup-android@v3
+
+      - name: 安装 NDK 与 CMake 具体版本
+        run: |
+          yes | sdkmanager --install \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;25.2.9519653" \
+            "cmake;3.22.1" \
+            --sdk_root=${ANDROID_HOME} || true
+          echo "已安装组件："
+          ls "${ANDROID_HOME}/ndk" 2>/dev/null || echo "（ndk 目录为空，使用 setup-android 预装版本）"
+
+      - name: 生成 local.properties
+        run: |
+          cd android
+          echo "sdk.dir=${ANDROID_HOME}" > local.properties
+          cat local.properties
+
+      #  本仓库不含 gradle-wrapper.jar（该二进制无法由脚本生成），
+      #  故直接下载 Gradle 分发包使用，不依赖 ./gradlew。
+      - name: 安装 Gradle
+        run: |
+          GRADLE_VERSION=8.2
+          cd /tmp
+          curl -sSL -o gradle.zip \
+            "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip"
+          unzip -q gradle.zip
+          echo "$PWD/gradle-${GRADLE_VERSION}/bin" >> $GITHUB_PATH
+          gradle-${GRADLE_VERSION}/bin/gradle --version | head -5
+
+      - name: 编译 Debug APK
+        run: |
+          cd android
+          gradle assembleDebug --stacktrace --no-daemon
+
+      #  ---------- 关键校验：.so 是否真的打进 APK ----------
+      #  这一步不能省：CMake 若被静默跳过，APK 照样能编出来，
+      #  但装到手机上必然抛 "Unable to find native library guzhenren"。
+      - name: 校验 APK 中的 native 库
+        run: |
+          APK=$(find android/app/build/outputs/apk -name "*.apk" | head -1)
+          echo "APK: $APK"
+          echo "--- APK 内的 native 库 ---"
+          unzip -l "$APK" | grep '\.so$' || echo "（无）"
+          if ! unzip -l "$APK" | grep -q 'libguzhenren\.so'; then
+            echo "::error::APK 中缺少 libguzhenren.so —— CMake 未执行"
+            exit 1
+          fi
+          echo "校验通过：libguzhenren.so 已打进 APK"
+
+      - name: 收集各 ABI 的 .so
+        run: |
+          mkdir -p out-libs
+          find android/app/build -name 'libguzhenren.so' 2>/dev/null | while read -r so; do
+            abi=$(basename "$(dirname "$so")")
+            case "$abi" in
+              arm64-v8a|armeabi-v7a|x86_64|x86) ;;
+              *) continue ;;
+            esac
+            mkdir -p "out-libs/$abi"
+            cp -f "$so" "out-libs/$abi/"
+            echo "已收集: $abi"
+          done
+          ls -R out-libs
+
+      - name: 上传 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: guzhenren-apk
+          path: android/app/build/outputs/apk/**/*.apk
+
+      - name: 上传 native 库
+        uses: actions/upload-artifact@v4
+        with:
+          name: guzhenren-native-libs
+          path: out-libs/**
+          if-no-files-found: warn
